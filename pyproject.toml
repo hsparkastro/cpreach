@@ -1,0 +1,28 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["depikt*", "reach*"]
+exclude = ["examples*", "build*"]
+
+[project]
+name = "cpreach" # Add your package name here
+version = "0.1.0" # Add your package version here
+description = "Conformal Prediction Based Reachability Analysis"
+authors = [
+    { name = "Hyunsang Park", email = "hs.park.astro@gmail.com" },
+    { name = "Vishnu Vijay", email = "vvijay@purdue.edu" },
+]
+license = "MIT"
+dependencies = [
+    "casadi>=3.6.0",
+    "numpy>=2.1",
+    "PyYAML>=6.0.2",
+    "scipy>=1.13.0",
+    "torch>=2.3.0",
+    "tqdm>=4.66.0",
+    "shapely>=2.1.1",
+]

@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: cpreach
+Version: 0.1.0
+Summary: Conformal Prediction Based Reachability Analysis
+Author-email: Hyunsang Park <hs.park.astro@gmail.com>, Vishnu Vijay <vvijay@purdue.edu>
+License-Expression: MIT
+Requires-Dist: casadi>=3.6.0
+Requires-Dist: numpy>=2.1
+Requires-Dist: PyYAML>=6.0.2
+Requires-Dist: scipy>=1.13.0
+Requires-Dist: torch>=2.3.0
+Requires-Dist: tqdm>=4.66.0
+Requires-Dist: shapely>=2.1.1

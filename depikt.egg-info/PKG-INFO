@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: depikt
+Version: 0.2.2
+Summary: DEPIKT: Data-Efficient ParameterIzed Koopman Tranform for Rapid Finetuning and Adaptive Control
+Author-email: Hyunsang Park <hs.park.astro@gmail.com>
+License-Expression: MIT
+Requires-Dist: casadi>=3.6.0
+Requires-Dist: numpy>=2.1
+Requires-Dist: PyYAML>=6.0.2
+Requires-Dist: scipy>=1.13.0
+Requires-Dist: torch>=2.3.0
+Requires-Dist: tqdm>=4.66.0

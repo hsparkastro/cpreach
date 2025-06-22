@@ -1,0 +1,15 @@
+pyproject.toml
+depikt/__init__.py
+depikt.egg-info/PKG-INFO
+depikt.egg-info/SOURCES.txt
+depikt.egg-info/dependency_links.txt
+depikt.egg-info/requires.txt
+depikt.egg-info/top_level.txt
+depikt/models/__init__.py
+depikt/models/bases.py
+depikt/models/koopman.py
+depikt/models/mlp.py
+depikt/models/standard.py
+depikt/utils/__init__.py
+depikt/utils/dataset.py
+depikt/utils/lr_schedule.py

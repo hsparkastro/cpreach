@@ -1,0 +1,20 @@
+model_args:
+  modeltype: 'standard'
+  state:
+    lifting: 'snmlp'
+    args:
+      nndims: [2, 256, 256, 256, 16]
+      normalize_hidden: True
+      normalize_output: False
+
+
+fit_args:
+  num_epochs: 50000
+  learning_rate: 0.0001
+  batch_size: 1024
+  nstep: 1
+  unfold: True
+  savepath: 'save/standard_p0.pt'
+  trainset: 'data/randomtraj_p0.pkl.train'
+  valset: 'data/randomtraj_p0.pkl.val'
+  

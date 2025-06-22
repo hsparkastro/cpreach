@@ -1,0 +1,22 @@
+model_args:
+  modeltype: 'standard'
+  state:
+    lifting: 'snmlp'
+    args:
+      nndims: [2, 64, 64, 32, 32, 10]
+      normalize_hidden: True
+      normalize_output: False
+  normalization :
+    x_range: 
+      - [-3.0, 3.0] # all
+      - [-1.0, 1.0]
+    dt: 0.001
+
+fit_args:
+  num_epochs: 50000
+  learning_rate: 0.0002
+  batch_size: 128
+  nstep: 1
+  savepath: 'save/standard_p0.pt'
+  trainset: 'data/random_p0.pkl.train'
+  valset: 'data/random_p0.pkl.val'
