@@ -1,21 +1,23 @@
 p0_train:
   filepath: data/randomtraj_p0.pkl.train
-  x_range: 
-      - [-3.0, 3.0] 
+  x_range:
+      - [-3.0, 3.0]
       - [-3.0, 3.0]
   param: [1.0,]
   dt: 0.01
-  nsample: 1000
+  nsample: 10000
   nstep: 700
 
 p0_val:
   filepath: data/randomtraj_p0.pkl.val
   x_range: 
-      - [1.25, 1.55] 
-      - [2.35, 2.45]
+      # - [1.25, 1.55] 
+      # - [2.35, 2.45]
+      - [-2.0, 2.0]
+      - [-2.0, 2.0]
   param: [1.0,]
   dt: 0.01
-  nsample: 100
+  nsample: 1000
   nstep: 700
 
 
