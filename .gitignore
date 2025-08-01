@@ -2,3 +2,4 @@
 *.pdf
 .DS_Store
 *.code-workspace
+.vscode/settings.json

@@ -9,6 +9,7 @@ from shapely.geometry import MultiPolygon
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from datetime import datetime
+from copy import deepcopy
 
 from depikt import Koopman
 from depikt.utils.dataset import load_dataset
@@ -35,7 +36,7 @@ def phi_fn(x):
     x = np.array(x)
     
     # Discretize SS
-    eps = 1
+    eps = 0.5
     disc_x = np.arange(-4, (4 + eps), eps)
     disc_y = np.arange(-4, (4 + eps), eps)
     
@@ -60,85 +61,97 @@ def phi_fn(x):
     
     return matrix
     
+#
+def ccp_setup(dkr, trainset):
+    
+    ## Pull Training Set Data
+    x_ft = trainset['x'][:, 0]
+    y_ft = trainset['x'][:, 1]
+    n_trainset = x_ft.shape[0]
+    dim = x_ft.shape[1]
+    
+    ## Add Disturbance to Calibration/Training Set
+    x_cal = x_ft
+    y_cal = y_ft
+    unoise_bounds_cal = 0.25
+    x_dist = np.random.uniform(-unoise_bounds_cal, unoise_bounds_cal, size=x_cal.shape)
+    y_dist = np.random.uniform(-unoise_bounds_cal, unoise_bounds_cal, size=y_cal.shape)
+    x_cal = x_cal + 0*x_dist
+    y_cal = y_cal + 1*y_dist
+    
+    ## Cond Conf Object Creation
+    cond_conf_arr = []
+    for i in range(dim):
+        score_scale = 1
+        def score_fn(x, y):
+            res = y - dkr.predict(x, np.zeros((x.shape[0], 0)))
+            return res[:, i]
+        
+        phi = phi_fn
+        inf_params = {}
+        print(f"Setting up Conditional Conformal Prediction (CCP) Problem for Variable {i+1}...")
+        this_cond_conf = CondConf(score_fn, phi, infinite_params=inf_params)
+        this_cond_conf.setup_problem(x_cal, y_cal)
+        print(f"\t-> Score Bounds: [{np.min(this_cond_conf.scores_calib)}, {np.max(this_cond_conf.scores_calib)}]")
+        
+        cond_conf_arr.append(deepcopy(this_cond_conf))
+    
+    ## Return Cond Conf Array
+    return cond_conf_arr
+    
+
+#
+def ccp_bounds(dkr, condconf_arr, test_point):
+    bounds = []
+    
+    for i, cond_conf in enumerate(condconf_arr):
+        # Functions
+        def score_inv_fn_ub(s, x):
+            y_pred = dkr.predict(x.flatten(), np.zeros(1))
+            return [ -np.inf, (y_pred[i] + s)[0] ]
+        def score_inv_fn_lb(s, x):
+            y_pred = dkr.predict(x.flatten(), np.zeros(1))
+            return [ (y_pred[i] + s)[0], np.inf ]
+        # Lower Bound
+        res = cond_conf.predict((cp_alpha/2), test_point, score_inv_fn_lb, exact=True, randomize=True)
+        lb = res[0] - test_point[i]
+        # Upper Bound
+        res = cond_conf.predict((1 - (cp_alpha/2)), test_point, score_inv_fn_ub, exact=True, randomize=True)
+        ub = res[1] - test_point[i]
+        bounds.append((lb, ub))
+    
+    return bounds
+        
     
 # 
 def ccp_test(dkr, trainset, valset, ex_name):
     
-    ## Split Data Sets
-    # split_ratio = 0.5
-    x_ft = trainset['x'][:, 0]
-    y_ft = trainset['x'][:, 1]
-    # u = calset['u'][:, 0]
-    
-    n_trainset = ( x_ft.shape[0] )
-    # n_train = int(split_ratio * n_trainset)
-    # n_calib = n_trainset - n_train
-    
-    # x_train = x_ft[ : n_train ]
-    # y_train = y_ft[ : n_train ]
-    # x_cal = x_ft[ n_train : ]
-    # y_cal = y_ft[ n_train : ]
-    x_cal = x_ft
-    y_cal = y_ft
-    unoise_bounds = 0.25
-    x_dist = np.random.uniform(-unoise_bounds, unoise_bounds, size=x_cal.shape)
-    y_dist = np.random.uniform(-unoise_bounds, unoise_bounds, size=y_cal.shape)
-    x_cal = x_cal + x_dist
-    y_cal = y_cal + y_dist
-        
+    ## Pull Validation Set Data
     x_val = valset['x'][:, 0]
     y_val = valset['x'][:, 1]
     n_val = x_val.shape[0]
-    x_dist = np.random.uniform(-unoise_bounds, unoise_bounds, size=x_val.shape)
-    y_dist = np.random.uniform(-unoise_bounds, unoise_bounds, size=y_val.shape)
-    x_val = x_val + x_dist
-    y_val = y_val + y_dist
+    dim = x_val.shape[1]
+    unoise_bounds_val = 0.25
+    x_dist = np.random.uniform(-unoise_bounds_val, unoise_bounds_val, size=x_val.shape)
+    y_dist = np.random.uniform(-unoise_bounds_val, unoise_bounds_val, size=y_val.shape)
+    x_val = x_val + 0*x_dist
+    y_val = y_val + 1*y_dist
     
-    ## Misc
-    u_empty = np.zeros((x_ft.shape[0], 0))
-    y_pred = dkr.predict(x_ft, u_empty)
-    
-    err = (y_ft - y_pred)
-    mean = np.mean(err, axis=0)
-    var = np.diag(np.cov(err.T))
-    rmse = (mean**2 + var)**0.5
-    maxerr = np.max(np.abs(err), axis=0)    
-    
-    ## Cond Conf Object Creation
-    # score_fn = lambda x, y : np.linalg.norm(y - dkr.predict(x, np.zeros((x.shape[0], 0))), axis=1)
-    # score_inv_fn_ub = lambda s, x : [ -np.inf, np.linalg.norm(dkr.predict(x, np.zeros((x.shape[0], 0))), axis=1) + s ]
-    # score_inv_fn_lb = lambda s, x : [ np.linalg.norm(dkr.predict(x, np.zeros((x.shape[0], 0))), axis=1) + s, np.inf]
-    score_scale = 0.5
-    score_fn = lambda x, y : score_scale*np.sum(y - dkr.predict(x, np.zeros((x.shape[0], 0))), axis=1)
-    # def score_fn(x, y):
-    #     y_pred = dkr.predict(x, np.zeros((x.shape[0], 0)))
-    #     res = np.sum(y - y_pred, axis=1)
-    #     print("Residual Matrix Size: ", res.shape)
-    #     return res
-    score_inv_fn_ub = lambda s, x : [ -np.inf, score_scale*np.sum(dkr.predict(x, np.zeros((x.shape[0], 0))), axis=1) + s ]
-    score_inv_fn_lb = lambda s, x : [ score_scale*np.sum(dkr.predict(x, np.zeros((x.shape[0], 0))), axis=1) + s, np.inf]
-    
-    phi = phi_fn
-    inf_params = {}
-    print("Setting up Conditional Conformal Prediction (CCP) Problem...")
-    cond_conf = CondConf(score_fn, phi, infinite_params=inf_params)
-    cond_conf.setup_problem(x_cal, y_cal)
-    print(f"Score Bounds: [{np.min(cond_conf.scores_calib)}, {np.max(cond_conf.scores_calib)}]")
+    ## Setup Cond Conf Objects
+    cc_arr = ccp_setup(dkr, trainset)
     
     ## Storage Variables
-    lbs = np.zeros((n_val, x_val.shape[1]))
-    ubs = np.zeros((n_val, x_val.shape[1]))
+    lbs = np.zeros((n_val, dim))
+    ubs = np.zeros((n_val, dim))
     
     ## Prediction
     for i in tqdm(range(n_val), desc="Predicting Bounds", leave=False):
         this_x = x_val[i, :]
-        # print(this_x.reshape(-1, 1))
-        res = cond_conf.predict((cp_alpha/2), this_x, score_inv_fn_lb, exact=True, randomize=True)
-        # print(res)
-        lbs[i] = res[0]
-        res = cond_conf.predict((1 - (cp_alpha/2)), this_x, score_inv_fn_ub, exact=True, randomize=True)
-        # print(res)
-        ubs[i] = res[1]
+        this_bounds = ccp_bounds(dkr, cc_arr, this_x)
+        
+        for j in range(dim):
+            lbs[i, j] = this_bounds[j][0]
+            ubs[i, j] = this_bounds[j][1]
     
     ## Process Data: y1 vs x1
     sort_order_x1 = np.argsort(x_val[:, 0])
@@ -159,31 +172,39 @@ def ccp_test(dkr, trainset, valset, ex_name):
     print(f"(LB, UB) for Var 2 contains INF: ({np.any(np.isinf(lb2))}, {np.any(np.isinf(ub2))})")
     
     ## Plot Data
+    plot_diff = 1
+    
     fig = plt.figure(dpi=300, figsize=(10, 10))
     ax = fig.add_subplot(2, 1, 1)
     # ax.plot(x1_s, y1_s, '.', alpha=0.2, color='b')
-    ax.plot(x_val[:, 0], y_val[:, 0], '.', alpha=0.2, color='b')
+    ax.plot(x_val[:, 0], (y_val[:, 0] - plot_diff*x_val[:, 0]), '.', alpha=0.2, color='b')
     # ax.plot(x_cal[:, 0], y_cal[:, 0], '.', alpha=0.2, color='orangered')
-    ax.plot(x1_s, y1_hat, lw=1, color='k', alpha=0.5)
+    ax.plot(x1_s, (y1_hat - plot_diff*x1_s), lw=1, color='k', alpha=0.5)
     ax.plot(x1_s, lb1, lw=2, color='aquamarine')
     ax.plot(x1_s, ub1, lw=2, color='aquamarine')
     ax.fill_between(x1_s.flatten(), lb1, ub1, color='aquamarine', alpha=0.4)
     ax.set_xlabel("$x_1$")
-    ax.set_ylabel("$y_1$")
-    ax.set_title("CCP: $y_1$ vs $x_1$")
+    if plot_diff == 1:
+        ax.set_ylabel("$y_1$ - $x_1$")
+    else:
+        ax.set_ylabel("$y_1$")
+    ax.set_title("CCP: State 1")
     ax.grid(True)
     
     ax = fig.add_subplot(2, 1, 2)
     # ax.plot(x2_s, y2_s, '.', alpha=0.2, color='b')
-    ax.plot(x_val[:, 1], y_val[:, 1], '.', alpha=0.2, color='b')
+    ax.plot(x_val[:, 1], (y_val[:, 1] - plot_diff*x_val[:, 1]), '.', alpha=0.2, color='b')
     # ax.plot(x_cal[:, 1], y_cal[:, 1], '.', alpha=0.2, color='orangered')
-    ax.plot(x2_s, y2_hat, lw=1, color='k', alpha=0.5)
+    ax.plot(x2_s, (y2_hat - plot_diff*x2_s), lw=1, color='k', alpha=0.5)
     ax.plot(x2_s, lb2, lw=2, color='aquamarine')
     ax.plot(x2_s, ub2, lw=2, color='aquamarine')
     ax.fill_between(x2_s.flatten(), lb2, ub2, color='aquamarine', alpha=0.4)
     ax.set_xlabel("$x_2$")
-    ax.set_ylabel("$y_2$")
-    ax.set_title("CCP: $y_2$ vs $x_2$")
+    if plot_diff == 1:
+        ax.set_ylabel("$y_2$ - $x_2$")
+    else:
+        ax.set_ylabel("$y_2$")
+    ax.set_title("CCP: State 2")
     ax.grid(True)
     
     ## Save Plot
@@ -197,7 +218,7 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ## Show Plots
     # plt.show()
     
-    return cond_conf
+    return cc_arr
 
 
 if __name__ == "__main__":

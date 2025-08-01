@@ -96,4 +96,4 @@ def test(dkr, valset):
 if __name__ == "__main__":
 
     sample("config/system.yaml")
-    fit("config/standard.yaml")
+    # fit("config/standard.yaml")
