@@ -73,7 +73,7 @@ def ccp_setup(dkr, trainset):
     ## Add Disturbance to Calibration/Training Set
     x_cal = x_ft
     y_cal = y_ft
-    unoise_bounds_cal = 0.25
+    unoise_bounds_cal = 0.15
     x_dist = np.random.uniform(-unoise_bounds_cal, unoise_bounds_cal, size=x_cal.shape)
     y_dist = np.random.uniform(-unoise_bounds_cal, unoise_bounds_cal, size=y_cal.shape)
     x_cal = x_cal + 0*x_dist
@@ -131,7 +131,7 @@ def ccp_test(dkr, trainset, valset, ex_name):
     y_val = valset['x'][:, 1]
     n_val = x_val.shape[0]
     dim = x_val.shape[1]
-    unoise_bounds_val = 0.25
+    unoise_bounds_val = 0.15
     x_dist = np.random.uniform(-unoise_bounds_val, unoise_bounds_val, size=x_val.shape)
     y_dist = np.random.uniform(-unoise_bounds_val, unoise_bounds_val, size=y_val.shape)
     x_val = x_val + 0*x_dist
@@ -183,11 +183,11 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ax.plot(x1_s, lb1, lw=2, color='aquamarine')
     ax.plot(x1_s, ub1, lw=2, color='aquamarine')
     ax.fill_between(x1_s.flatten(), lb1, ub1, color='aquamarine', alpha=0.4)
-    ax.set_xlabel("$x_1$")
+    ax.set_xlabel("$x_1(k)$")
     if plot_diff == 1:
-        ax.set_ylabel("$y_1$ - $x_1$")
+        ax.set_ylabel("$x_1(k+1)$ - $x_1(k)$")
     else:
-        ax.set_ylabel("$y_1$")
+        ax.set_ylabel("$x_1(k+1)$")
     ax.set_title("CCP: State 1")
     ax.grid(True)
     
@@ -199,11 +199,11 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ax.plot(x2_s, lb2, lw=2, color='aquamarine')
     ax.plot(x2_s, ub2, lw=2, color='aquamarine')
     ax.fill_between(x2_s.flatten(), lb2, ub2, color='aquamarine', alpha=0.4)
-    ax.set_xlabel("$x_2$")
+    ax.set_xlabel("$x_2(k)$")
     if plot_diff == 1:
-        ax.set_ylabel("$y_2$ - $x_2$")
+        ax.set_ylabel("$x_2(k+1)$ - $x_2(k)$")
     else:
-        ax.set_ylabel("$y_2$")
+        ax.set_ylabel("$x_2(k+1)$")
     ax.set_title("CCP: State 2")
     ax.grid(True)
     
@@ -225,9 +225,9 @@ if __name__ == "__main__":
     
     start_time = time()
 
-    example = 'vanderpol'
+    # example = 'vanderpol'
     # example = 'brunton'
-    # example = 'duffing'
+    example = 'duffing'
     directory = f'examples/{example}'
     config_file = 'config/standard.yaml'
 
