@@ -34,31 +34,57 @@ np.set_printoptions(formatter={'float': '{: .3E}'.format})
 # 
 def phi_fn(x):
     x = np.array(x)
+    # dim = x.shape[1]
+    # ndata = x.shape[0]
     
     # Discretize SS
+    # Currently square grid space
     eps = 0.5
-    disc_x = np.arange(-4, (4 + eps), eps)
-    disc_y = np.arange(-4, (4 + eps), eps)
-    
+    lb = -4
+    ub = 4
+    disc = np.arange(lb, (ub + eps), eps)
+
     # Create all possible intervals
-    grids = []
-    for i in range(len(disc_x) - 1):
-        for j in range(len(disc_y) - 1):
-            grids.append((disc_x[i], disc_x[i + 1], disc_y[j], disc_y[j + 1]))
+    intervals = [(disc[i], disc[i + 1]) for i in range(len(disc) - 1)]
+
+    # Initialize the indicator matrix
+    matrix = np.zeros((len(x), len(intervals)))
+
+    # Fill in the indicator matrix
+    for i, value in enumerate(x):
+        for j, (a, b) in enumerate(intervals):
+            if a <= value < b:
+                matrix[i, j] = 1
     
-    # Initialize and fill in the indicator matrix
-    if x.shape[0] == 1 or x.ndim == 1:
-        matrix = np.zeros((1, len(grids)))
-        for j, (xlb, xub, ylb, yub) in enumerate(grids):
-            if xlb <= x[0] < xub and ylb <= x[1] < yub:
-                matrix[0, j] = 1
-    else:
-        matrix = np.zeros((x.shape[0], len(grids)))
-        for i, val in enumerate(x):
-            for j, (xlb, xub, ylb, yub) in enumerate(grids):
-                if xlb <= val[0] < xub and ylb <= val[1] < yub:
-                    matrix[i, j] = 1
+    # disc_intervals = []
+    # for i in range(dim):
+    #     this_interval = np.arange(lb, (ub + eps), eps)
+    #     disc_intervals.append(this_interval)
+        
+    # disc_x = np.arange(-4, (4 + eps), eps)
+    # disc_y = np.arange(-4, (4 + eps), eps)
     
+    # # Create all possible intervals
+    # grids = []
+    # for i in range(dim):
+    #     for j in 
+    # for i in range(len(disc_x) - 1):
+    #     for j in range(len(disc_y) - 1):
+    #         grids.append((disc_x[i], disc_x[i + 1], disc_y[j], disc_y[j + 1]))
+    
+    # # Initialize and fill in the indicator matrix
+    # if (x.shape[0] == 1) or (x.shape[1] == 1) or (x.ndim == 1):
+    #     matrix = np.zeros((1, len(grids)))
+    #     for j, (xlb, xub, ylb, yub) in enumerate(grids):
+    #         if xlb <= x[0] < xub and ylb <= x[1] < yub:
+    #             matrix[0, j] = 1
+    # else:
+    #     matrix = np.zeros((x.shape[0], len(grids)))
+    #     for i, val in enumerate(x):
+    #         for j, (xlb, xub, ylb, yub) in enumerate(grids):
+    #             if xlb <= val[0] < xub and ylb <= val[1] < yub:
+    #                 matrix[i, j] = 1
+    # print(matrix)
     return matrix
     
 #
@@ -145,13 +171,24 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ubs = np.zeros((n_val, dim))
     
     ## Prediction
+    true_coverage_count = 0
     for i in tqdm(range(n_val), desc="Predicting Bounds", leave=False):
         this_x = x_val[i, :]
+        this_y = y_val[i, :]
+        this_diff = this_y - this_x
         this_bounds = ccp_bounds(dkr, cc_arr, this_x)
         
+        dims_covered = 0
         for j in range(dim):
-            lbs[i, j] = this_bounds[j][0]
-            ubs[i, j] = this_bounds[j][1]
+            this_lb = this_bounds[j][0]
+            this_ub = this_bounds[j][1]
+            if (this_diff[j] >= this_lb) and (this_diff[j] <= this_ub):
+                dims_covered += 1
+            lbs[i, j] = this_lb
+            ubs[i, j] = this_ub
+        if dims_covered == dim:
+            true_coverage_count += 1
+    print(f"True Coverage Rate: {(true_coverage_count / n_val) * 100:.2f}%")
     
     ## Process Data: y1 vs x1
     sort_order_x1 = np.argsort(x_val[:, 0])
@@ -162,20 +199,24 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ub1 = ubs[sort_order_x1, 0]
     print(f"(LB, UB) for Var 1 contains INF: ({np.any(np.isinf(lb1))}, {np.any(np.isinf(ub1))})")
     
-    ## Process Data: x1 vs x2
-    sort_order_x2 = np.argsort(x_val[:, 1])
-    y2_hat = dkr.predict(x_val[sort_order_x2, :], np.zeros((x_val.shape[0], 0)))[:, 1]
-    x2_s = x_val[sort_order_x2, 1]
-    y2_s = y_val[sort_order_x2, 1]
-    lb2 = lbs[sort_order_x2, 1]
-    ub2 = ubs[sort_order_x2, 1]
-    print(f"(LB, UB) for Var 2 contains INF: ({np.any(np.isinf(lb2))}, {np.any(np.isinf(ub2))})")
+    ## Process Data: y2 vs x2
+    if dim == 2:
+        sort_order_x2 = np.argsort(x_val[:, 1])
+        y2_hat = dkr.predict(x_val[sort_order_x2, :], np.zeros((x_val.shape[0], 0)))[:, 1]
+        x2_s = x_val[sort_order_x2, 1]
+        y2_s = y_val[sort_order_x2, 1]
+        lb2 = lbs[sort_order_x2, 1]
+        ub2 = ubs[sort_order_x2, 1]
+        print(f"(LB, UB) for Var 2 contains INF: ({np.any(np.isinf(lb2))}, {np.any(np.isinf(ub2))})")
     
     ## Plot Data
     plot_diff = 1
     
     fig = plt.figure(dpi=300, figsize=(10, 10))
-    ax = fig.add_subplot(2, 1, 1)
+    if dim == 2:
+        ax = fig.add_subplot(2, 1, 1)
+    if dim == 1:
+        ax = fig.add_subplot(1, 1, 1)
     # ax.plot(x1_s, y1_s, '.', alpha=0.2, color='b')
     ax.plot(x_val[:, 0], (y_val[:, 0] - plot_diff*x_val[:, 0]), '.', alpha=0.2, color='b')
     # ax.plot(x_cal[:, 0], y_cal[:, 0], '.', alpha=0.2, color='orangered')
@@ -191,21 +232,22 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ax.set_title("CCP: State 1")
     ax.grid(True)
     
-    ax = fig.add_subplot(2, 1, 2)
-    # ax.plot(x2_s, y2_s, '.', alpha=0.2, color='b')
-    ax.plot(x_val[:, 1], (y_val[:, 1] - plot_diff*x_val[:, 1]), '.', alpha=0.2, color='b')
-    # ax.plot(x_cal[:, 1], y_cal[:, 1], '.', alpha=0.2, color='orangered')
-    ax.plot(x2_s, (y2_hat - plot_diff*x2_s), lw=1, color='k', alpha=0.5)
-    ax.plot(x2_s, lb2, lw=2, color='aquamarine')
-    ax.plot(x2_s, ub2, lw=2, color='aquamarine')
-    ax.fill_between(x2_s.flatten(), lb2, ub2, color='aquamarine', alpha=0.4)
-    ax.set_xlabel("$x_2(k)$")
-    if plot_diff == 1:
-        ax.set_ylabel("$x_2(k+1)$ - $x_2(k)$")
-    else:
-        ax.set_ylabel("$x_2(k+1)$")
-    ax.set_title("CCP: State 2")
-    ax.grid(True)
+    if dim == 2:
+        ax = fig.add_subplot(2, 1, 2)
+        # ax.plot(x2_s, y2_s, '.', alpha=0.2, color='b')
+        ax.plot(x_val[:, 1], (y_val[:, 1] - plot_diff*x_val[:, 1]), '.', alpha=0.2, color='b')
+        # ax.plot(x_cal[:, 1], y_cal[:, 1], '.', alpha=0.2, color='orangered')
+        ax.plot(x2_s, (y2_hat - plot_diff*x2_s), lw=1, color='k', alpha=0.5)
+        ax.plot(x2_s, lb2, lw=2, color='aquamarine')
+        ax.plot(x2_s, ub2, lw=2, color='aquamarine')
+        ax.fill_between(x2_s.flatten(), lb2, ub2, color='aquamarine', alpha=0.4)
+        ax.set_xlabel("$x_2(k)$")
+        if plot_diff == 1:
+            ax.set_ylabel("$x_2(k+1)$ - $x_2(k)$")
+        else:
+            ax.set_ylabel("$x_2(k+1)$")
+        ax.set_title("CCP: State 2")
+        ax.grid(True)
     
     ## Save Plot
     save_plt = True
@@ -218,6 +260,8 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ## Show Plots
     # plt.show()
     
+    ## Calc
+    
     return cc_arr
 
 
@@ -227,7 +271,8 @@ if __name__ == "__main__":
 
     # example = 'vanderpol'
     # example = 'brunton'
-    example = 'duffing'
+    # example = 'duffing'
+    example = 'univariate'
     directory = f'examples/{example}'
     config_file = 'config/standard.yaml'
 
