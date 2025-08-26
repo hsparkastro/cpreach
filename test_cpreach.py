@@ -31,18 +31,113 @@ np.set_printoptions(formatter={'float': '{: .3E}'.format})
 
 """ helper functions """
 
-# 
-def phi_fn(x):
-    x = np.array(x)
-    # dim = x.shape[1]
-    # ndata = x.shape[0]
+#
+def indicator_matrix_bounds(x):
+    ndata = x.shape[0]
+    dim = x.shape[1]
+    
     
     # Discretize SS
     # Currently square grid space
     eps = 0.5
     lb = -4
     ub = 4
-    disc = np.arange(lb, (ub + eps), eps)
+    
+    # Define discrete intervals
+    disc_intervals = []
+    elems_arr = []
+    for d in range(dim):
+        this_interval = np.arange(lb, (ub + eps), eps)
+        this_num_elems = this_interval.size - 1
+        disc_intervals.append(this_interval)
+        elems_arr.append(this_num_elems)
+    num_grids = np.prod(elems_arr)
+    
+    # Create all possible intervals
+    grids = []
+
+    # Helper Function
+    def helper(disc_intervals, depth):
+        loc_grids = []
+        if depth == 0:
+            for i in range(len(disc_intervals[depth]) - 1):
+                grid_pt = []
+                grid_pt.append(disc_intervals[depth][i])
+                grid_pt.append(disc_intervals[depth][i + 1])
+                loc_grids.append(grid_pt)
+        else:
+            prev_grids = deepcopy(grids)
+            for i in range(len(prev_grids)):
+                for j in range(len(disc_intervals[depth]) - 1):
+                    grid_pt = deepcopy(prev_grids[i])
+                    grid_pt.append(disc_intervals[depth][j])
+                    grid_pt.append(disc_intervals[depth][j + 1])
+                    loc_grids.append(grid_pt)
+        
+        return loc_grids
+    
+    #
+    for d in range(dim):
+        grids = helper(disc_intervals, d)
+    
+    return grids
+
+
+# 
+def phi_fn(x, grids):
+    x = np.array(x)
+    
+    
+    if len(x.shape) == 1:
+        x = x.reshape(1, -1)
+    ndata = x.shape[0]
+    dim = x.shape[1]
+    
+    # Initialize and fill in the indicator matrix
+    if (ndata == 1):
+        # print("Single Data Point")
+        matrix = np.zeros((1, len(grids)))
+        # print("\t", matrix.shape)
+        for j, bounds in enumerate(grids):
+            included = True
+            for d in range(dim):
+                if bounds[2*d] <= x.flatten()[d] < bounds[2*d + 1]:
+                    continue
+                else:
+                    included = False
+                    break
+            if included:
+                matrix[0, j] = 1
+    else:
+        # print("Multiple Data Points")
+        matrix = np.zeros((ndata, len(grids)))
+        # print("\t", matrix.shape)
+        for i, val in enumerate(x):
+            for j, bounds in enumerate(grids):
+                included = True
+                for d in range(dim):
+                    if bounds[2*d] <= val[d] < bounds[2*d + 1]:
+                        continue
+                    else:
+                        included = False
+                        break
+                if included:
+                    matrix[i, j] = 1
+    
+    return matrix
+
+
+#
+def single_phi_fn(x, dim):
+    eps = 0.5
+    disc = np.arange(-4, 4 + eps, eps)
+    
+    x = np.array(x)
+    
+    if len(x.shape) == 1:
+        x = x[dim]
+    else:
+        x = x[:, dim]
 
     # Create all possible intervals
     intervals = [(disc[i], disc[i + 1]) for i in range(len(disc) - 1)]
@@ -55,38 +150,9 @@ def phi_fn(x):
         for j, (a, b) in enumerate(intervals):
             if a <= value < b:
                 matrix[i, j] = 1
-    
-    # disc_intervals = []
-    # for i in range(dim):
-    #     this_interval = np.arange(lb, (ub + eps), eps)
-    #     disc_intervals.append(this_interval)
-        
-    # disc_x = np.arange(-4, (4 + eps), eps)
-    # disc_y = np.arange(-4, (4 + eps), eps)
-    
-    # # Create all possible intervals
-    # grids = []
-    # for i in range(dim):
-    #     for j in 
-    # for i in range(len(disc_x) - 1):
-    #     for j in range(len(disc_y) - 1):
-    #         grids.append((disc_x[i], disc_x[i + 1], disc_y[j], disc_y[j + 1]))
-    
-    # # Initialize and fill in the indicator matrix
-    # if (x.shape[0] == 1) or (x.shape[1] == 1) or (x.ndim == 1):
-    #     matrix = np.zeros((1, len(grids)))
-    #     for j, (xlb, xub, ylb, yub) in enumerate(grids):
-    #         if xlb <= x[0] < xub and ylb <= x[1] < yub:
-    #             matrix[0, j] = 1
-    # else:
-    #     matrix = np.zeros((x.shape[0], len(grids)))
-    #     for i, val in enumerate(x):
-    #         for j, (xlb, xub, ylb, yub) in enumerate(grids):
-    #             if xlb <= val[0] < xub and ylb <= val[1] < yub:
-    #                 matrix[i, j] = 1
-    # print(matrix)
+
     return matrix
-    
+
 #
 def ccp_setup(dkr, trainset):
     
@@ -108,12 +174,13 @@ def ccp_setup(dkr, trainset):
     ## Cond Conf Object Creation
     cond_conf_arr = []
     for i in range(dim):
-        score_scale = 1
         def score_fn(x, y):
             res = y - dkr.predict(x, np.zeros((x.shape[0], 0)))
             return res[:, i]
         
-        phi = phi_fn
+        ind_matrix = indicator_matrix_bounds(x_cal)
+        phi = lambda x: phi_fn(x, grids=ind_matrix)
+        # phi = lambda x: single_phi_fn(x, i)
         inf_params = {}
         print(f"Setting up Conditional Conformal Prediction (CCP) Problem for Variable {i+1}...")
         this_cond_conf = CondConf(score_fn, phi, infinite_params=inf_params)
@@ -172,6 +239,7 @@ def ccp_test(dkr, trainset, valset, ex_name):
     
     ## Prediction
     true_coverage_count = 0
+    dim_coverage_count = [0] * dim
     for i in tqdm(range(n_val), desc="Predicting Bounds", leave=False):
         this_x = x_val[i, :]
         this_y = y_val[i, :]
@@ -183,12 +251,15 @@ def ccp_test(dkr, trainset, valset, ex_name):
             this_lb = this_bounds[j][0]
             this_ub = this_bounds[j][1]
             if (this_diff[j] >= this_lb) and (this_diff[j] <= this_ub):
+                dim_coverage_count[j] += 1
                 dims_covered += 1
             lbs[i, j] = this_lb
             ubs[i, j] = this_ub
         if dims_covered == dim:
             true_coverage_count += 1
     print(f"True Coverage Rate: {(true_coverage_count / n_val) * 100:.2f}%")
+    for j in range(dim):
+        print(f" -> Dim {j+1} Coverage Rate: {(dim_coverage_count[j] / n_val) * 100:.2f}%")
     
     ## Process Data: y1 vs x1
     sort_order_x1 = np.argsort(x_val[:, 0])
@@ -271,8 +342,8 @@ if __name__ == "__main__":
 
     # example = 'vanderpol'
     # example = 'brunton'
-    # example = 'duffing'
-    example = 'univariate'
+    example = 'duffing'
+    # example = 'univariate'
     directory = f'examples/{example}'
     config_file = 'config/standard.yaml'
 
