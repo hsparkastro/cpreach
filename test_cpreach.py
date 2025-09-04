@@ -20,6 +20,7 @@ from reach.zonotope import Zonotope
 
 # from condconf.conditionalconformal.synthetic_data import indicator_matrix
 from condconf.conditionalconformal import CondConf
+from matplotlib import cm
 
 
 cp_alpha = 1 - 0.9
@@ -35,7 +36,6 @@ np.set_printoptions(formatter={'float': '{: .3E}'.format})
 def indicator_matrix_bounds(x):
     ndata = x.shape[0]
     dim = x.shape[1]
-    
     
     # Discretize SS
     # Currently square grid space
@@ -83,11 +83,9 @@ def indicator_matrix_bounds(x):
     return grids
 
 
-# 
+#
 def phi_fn(x, grids):
     x = np.array(x)
-    
-    
     if len(x.shape) == 1:
         x = x.reshape(1, -1)
     ndata = x.shape[0]
@@ -172,6 +170,20 @@ def ccp_setup(dkr, trainset):
     y_cal = y_cal + 1*y_dist
     
     ## Cond Conf Object Creation
+    def score_fn(x, y):
+        res = y - dkr.predict(x, np.zeros((x.shape[0], 0)))
+        return np.linalg.norm(res, axis=1)
+    ind_matrix = indicator_matrix_bounds(x_cal)
+    phi = lambda x: phi_fn(x, grids=ind_matrix)
+    inf_params = {}
+    print("Setting up Conditional Conformal Prediction (CCP) Problem...")
+    cond_conf = CondConf(score_fn, phi, infinite_params=inf_params)
+    cond_conf.setup_problem(x_cal, y_cal)
+    print(f"\t-> Score Bounds: [{np.min(cond_conf.scores_calib)}, {np.max(cond_conf.scores_calib)}]")
+    
+    return cond_conf
+    
+    ## Cond Conf Object Creation
     cond_conf_arr = []
     for i in range(dim):
         def score_fn(x, y):
@@ -194,7 +206,15 @@ def ccp_setup(dkr, trainset):
     
 
 #
-def ccp_bounds(dkr, condconf_arr, test_point):
+def ccp_bounds(dkr, cond_conf, test_point):
+    
+    def score_inv_fn(s, x):
+        y_pred = dkr.predict(x.flatten(), np.zeros(1))
+        return [(y_pred - x.flatten()), s[0]]
+    bounds = cond_conf.predict((1 - cp_alpha), test_point, score_inv_fn, exact=True, randomize=True)
+    
+    return bounds
+    
     bounds = []
     
     for i, cond_conf in enumerate(condconf_arr):
@@ -222,7 +242,7 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ## Pull Validation Set Data
     x_val = valset['x'][:, 0]
     y_val = valset['x'][:, 1]
-    n_val = x_val.shape[0]
+    n_val = round(x_val.shape[0] / 5)
     dim = x_val.shape[1]
     unoise_bounds_val = 0.15
     x_dist = np.random.uniform(-unoise_bounds_val, unoise_bounds_val, size=x_val.shape)
@@ -236,34 +256,35 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ## Storage Variables
     lbs = np.zeros((n_val, dim))
     ubs = np.zeros((n_val, dim))
+    b_centers = np.zeros((n_val, dim))
+    b_radii = np.zeros((n_val, 1))
     
     ## Prediction
     true_coverage_count = 0
-    dim_coverage_count = [0] * dim
     for i in tqdm(range(n_val), desc="Predicting Bounds", leave=False):
         this_x = x_val[i, :]
         this_y = y_val[i, :]
         this_diff = this_y - this_x
-        this_bounds = ccp_bounds(dkr, cc_arr, this_x)
+        ball_center, ball_radius = ccp_bounds(dkr, cc_arr, this_x)
         
-        dims_covered = 0
+        # Check Coverage
+        if (np.linalg.norm(this_diff - ball_center) <= ball_radius):
+            true_coverage_count += 1
+        
+        # Store Bounds
+        b_centers[i, :] = ball_center
+        b_radii[i, 0] = ball_radius
         for j in range(dim):
-            this_lb = this_bounds[j][0]
-            this_ub = this_bounds[j][1]
-            if (this_diff[j] >= this_lb) and (this_diff[j] <= this_ub):
-                dim_coverage_count[j] += 1
-                dims_covered += 1
+            this_lb = ball_center[j] - ball_radius
+            this_ub = ball_center[j] + ball_radius
             lbs[i, j] = this_lb
             ubs[i, j] = this_ub
-        if dims_covered == dim:
-            true_coverage_count += 1
-    print(f"True Coverage Rate: {(true_coverage_count / n_val) * 100:.2f}%")
-    for j in range(dim):
-        print(f" -> Dim {j+1} Coverage Rate: {(dim_coverage_count[j] / n_val) * 100:.2f}%")
+    
+    print(f"Coverage Rate: {(true_coverage_count / n_val) * 100:.2f}%")
     
     ## Process Data: y1 vs x1
-    sort_order_x1 = np.argsort(x_val[:, 0])
-    y1_hat = dkr.predict(x_val[sort_order_x1, :], np.zeros((x_val.shape[0], 0)))[:, 0]
+    sort_order_x1 = np.argsort(x_val[:n_val, 0])
+    y1_hat = dkr.predict(x_val[sort_order_x1, :], np.zeros((n_val, 0)))[:, 0]
     x1_s = x_val[sort_order_x1, 0]
     y1_s = y_val[sort_order_x1, 0]
     lb1 = lbs[sort_order_x1, 0]
@@ -272,8 +293,8 @@ def ccp_test(dkr, trainset, valset, ex_name):
     
     ## Process Data: y2 vs x2
     if dim == 2:
-        sort_order_x2 = np.argsort(x_val[:, 1])
-        y2_hat = dkr.predict(x_val[sort_order_x2, :], np.zeros((x_val.shape[0], 0)))[:, 1]
+        sort_order_x2 = np.argsort(x_val[:n_val, 1])
+        y2_hat = dkr.predict(x_val[sort_order_x2, :], np.zeros((n_val, 0)))[:, 1]
         x2_s = x_val[sort_order_x2, 1]
         y2_s = y_val[sort_order_x2, 1]
         lb2 = lbs[sort_order_x2, 1]
@@ -283,13 +304,13 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ## Plot Data
     plot_diff = 1
     
-    fig = plt.figure(dpi=300, figsize=(10, 10))
+    fig1 = plt.figure(dpi=300, figsize=(10, 10))
     if dim == 2:
-        ax = fig.add_subplot(2, 1, 1)
+        ax = fig1.add_subplot(2, 1, 1)
     if dim == 1:
-        ax = fig.add_subplot(1, 1, 1)
+        ax = fig1.add_subplot(1, 1, 1)
     # ax.plot(x1_s, y1_s, '.', alpha=0.2, color='b')
-    ax.plot(x_val[:, 0], (y_val[:, 0] - plot_diff*x_val[:, 0]), '.', alpha=0.2, color='b')
+    ax.plot(x_val[:n_val, 0], (y_val[:n_val, 0] - plot_diff*x_val[:n_val, 0]), '.', alpha=0.2, color='b')
     # ax.plot(x_cal[:, 0], y_cal[:, 0], '.', alpha=0.2, color='orangered')
     ax.plot(x1_s, (y1_hat - plot_diff*x1_s), lw=1, color='k', alpha=0.5)
     ax.plot(x1_s, lb1, lw=2, color='aquamarine')
@@ -304,9 +325,9 @@ def ccp_test(dkr, trainset, valset, ex_name):
     ax.grid(True)
     
     if dim == 2:
-        ax = fig.add_subplot(2, 1, 2)
+        ax = fig1.add_subplot(2, 1, 2)
         # ax.plot(x2_s, y2_s, '.', alpha=0.2, color='b')
-        ax.plot(x_val[:, 1], (y_val[:, 1] - plot_diff*x_val[:, 1]), '.', alpha=0.2, color='b')
+        ax.plot(x_val[:n_val, 1], (y_val[:n_val, 1] - plot_diff*x_val[:n_val, 1]), '.', alpha=0.2, color='b')
         # ax.plot(x_cal[:, 1], y_cal[:, 1], '.', alpha=0.2, color='orangered')
         ax.plot(x2_s, (y2_hat - plot_diff*x2_s), lw=1, color='k', alpha=0.5)
         ax.plot(x2_s, lb2, lw=2, color='aquamarine')
@@ -319,6 +340,21 @@ def ccp_test(dkr, trainset, valset, ex_name):
             ax.set_ylabel("$x_2(k+1)$")
         ax.set_title("CCP: State 2")
         ax.grid(True)
+    
+    ## Plot Data 2D: Validation Trajectories
+    if dim == 2:
+        fig2 = plt.figure(dpi=300, figsize=(12, 10))
+        ax = fig2.add_subplot(1, 1, 1)
+        # ax.plot(x_val[:, 0], x_val[:, 1], '.', alpha=0.2, color='b', label='Validation Set')
+        ax.set_xlabel("$x_1(k)$")
+        ax.set_ylabel("$x_2(k)$")
+        ax.grid(True)
+        # ax.legend()
+
+        sc = ax.scatter(x_val[:n_val, 0], x_val[:n_val, 1], c=b_radii.flatten(), 
+                        cmap=cm.plasma, s=20, marker='o', label='Ball Radii')
+        cbar = plt.colorbar(sc, ax=ax, label='Ball Radii')
+    
     
     ## Save Plot
     save_plt = True
@@ -340,9 +376,9 @@ if __name__ == "__main__":
     
     start_time = time()
 
-    # example = 'vanderpol'
+    example = 'vanderpol'
     # example = 'brunton'
-    example = 'duffing'
+    # example = 'duffing'
     # example = 'univariate'
     directory = f'examples/{example}'
     config_file = 'config/standard.yaml'
